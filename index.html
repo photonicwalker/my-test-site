@@ -48,9 +48,9 @@ h1 small{display:block; font-size:15px; font-weight:700; color:var(--muted); mar
 .legend .g{color:var(--green)} .legend .r{color:var(--red)}
 
 .stats{width:100%; display:flex; gap:8px}
-.stat{flex:1; border:1.5px solid color-mix(in srgb,var(--ink) 18%,transparent); border-radius:10px; padding:8px 10px}
+.stat{flex:1; min-width:0; border:1.5px solid color-mix(in srgb,var(--ink) 18%,transparent); border-radius:10px; padding:8px 10px}
 .stat span{display:block; font-size:12px; color:var(--muted)}
-.stat strong{font-family:Rubik,sans-serif; font-size:22px}
+.stat strong{font-family:Rubik,"Noto Sans TC",sans-serif; font-size:clamp(16px,4.6vw,22px); white-space:nowrap}
 
 .stage{width:min(92vw,440px); display:flex; flex-direction:column; gap:10px}
 .board{
@@ -114,6 +114,7 @@ h1 small{display:block; font-size:15px; font-weight:700; color:var(--muted); mar
   <div class="stats">
     <div class="stat"><span>關卡</span><strong id="lvl">1</strong></div>
     <div class="stat"><span>記憶時間</span><strong id="mem">5 秒</strong></div>
+    <div class="stat"><span>可翻牌數</span><strong id="rule">不限</strong></div>
     <div class="stat"><span>最佳紀錄</span><strong id="best">–</strong></div>
   </div>
 
@@ -122,7 +123,7 @@ h1 small{display:block; font-size:15px; font-weight:700; color:var(--muted); mar
     <div class="timer" aria-hidden="true"><span id="bar"></span></div>
   </div>
 
-  <p class="msg" id="msg" aria-live="polite">按「開始」看牌。牌會在幾秒後蓋起來並旋轉 90°。<span class="sub">蓋牌後點選牌，讓加減後的總和剛好等於 10。</span></p>
+  <p class="msg" id="msg" aria-live="polite">按「開始」看牌。牌會在幾秒後蓋起來並旋轉 90°。<span class="sub">蓋牌後點選牌，讓加減後的總和剛好等於 10。第 3 關起只能翻固定張數，而且只有一組答案。</span></p>
 
   <button id="main" type="button">開始</button>
 
@@ -134,7 +135,7 @@ h1 small{display:block; font-size:15px; font-weight:700; color:var(--muted); mar
         <option value="rand">隨機</option>
       </select>
     </label>
-    <label><input type="checkbox" id="reveal" checked> 點牌時翻開並顯示總和</label>
+    <label><input type="checkbox" id="reveal" checked> 翻牌時顯示數字與總和</label>
   </div>
 </main>
 
@@ -143,23 +144,52 @@ h1 small{display:block; font-size:15px; font-weight:700; color:var(--muted); mar
   const $ = s => document.querySelector(s);
   const board = $('#board'), bar = $('#bar'), msg = $('#msg'), mainBtn = $('#main');
   const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const rand = n => Math.floor(Math.random() * n);
+  const shuffle = a => { for (let i = a.length - 1; i > 0; i--) { const j = rand(i + 1); [a[i], a[j]] = [a[j], a[i]]; } return a; };
 
-  let cells = [], phase = 'idle', level = 1, timers = [], raf = 0;
+  let cells = [], phase = 'idle', level = 1, timers = [], raf = 0, round = { k: 0 }, used = 0;
   let best = 0;
   try { best = parseInt(localStorage.getItem('make10-best') || '0', 10) || 0; } catch (e) {}
 
-  const memTime = () => Math.max(2, 5.5 - level * 0.5);
+  // 關卡難度：k = 本關只能翻幾張（0 = 不限張數、可能多組答案）
+  function cfg(lv) {
+    if (lv <= 2) return { k: 0, mem: 5.5 - lv * 0.5 };                 // 5, 4.5 秒
+    if (lv <= 4) return { k: 2, mem: 5 };                               // 翻 2 張，唯一解
+    if (lv <= 7) return { k: 3, mem: 5 - (lv - 5) * 0.5 };              // 翻 3 張，含紅字
+    return { k: 4, mem: Math.max(2.5, 5 - (lv - 8) * 0.5) };           // 翻 4 張，時間遞減
+  }
+
   const later = (ms, fn) => timers.push(setTimeout(fn, ms));
   const clearAll = () => { timers.forEach(clearTimeout); timers = []; cancelAnimationFrame(raf); };
   const setMsg = (main, sub = '') => { msg.innerHTML = main + (sub ? `<span class="sub">${sub}</span>` : ''); };
 
   function updateStats() {
+    const c = cfg(level);
     $('#lvl').textContent = level;
-    $('#mem').textContent = memTime() + ' 秒';
+    $('#mem').textContent = c.mem + ' 秒';
+    $('#rule').textContent = c.k ? c.k + ' 張' : '不限';
     $('#best').textContent = best ? '第 ' + best + ' 關' : '–';
   }
 
-  // 找出最少張數、總和為 10 的組合（16 張全枚舉 65536 種即可）
+  // ---------- 出題 ----------
+  function combos(n, k) {
+    const out = [];
+    const rec = (st, cur) => {
+      if (cur.length === k) { out.push(cur.slice()); return; }
+      for (let i = st; i < n; i++) { cur.push(i); rec(i + 1, cur); cur.pop(); }
+    };
+    rec(0, []);
+    return out;
+  }
+  const COMBOS = {}, BY_INDEX = {};
+  [2, 3, 4].forEach(k => {
+    COMBOS[k] = combos(16, k);
+    BY_INDEX[k] = Array.from({ length: 16 }, (_, i) => COMBOS[k].filter(c => c.includes(i)));
+  });
+
+  const randItem = () => ({ v: 1 + rand(9), s: Math.random() < 0.35 ? -1 : 1 });
+
+  // 自由模式：找出最少張數的一組解（提示用）
   function findSolution(items) {
     let bestMask = -1, bestCount = 99;
     for (let m = 1; m < (1 << 16); m++) {
@@ -170,17 +200,66 @@ h1 small{display:block; font-size:15px; font-weight:700; color:var(--muted); mar
     return bestMask;
   }
 
-  function generate() {
+  function generateFree() {
     let items;
-    do {
-      items = Array.from({ length: 16 }, () => ({
-        v: 1 + Math.floor(Math.random() * 9),
-        s: Math.random() < 0.35 ? -1 : 1
-      }));
-    } while (findSolution(items) < 0);
+    do { items = Array.from({ length: 16 }, randItem); } while (findSolution(items) < 0);
     return items;
   }
 
+  // 答案位置：任兩張不相鄰（上下左右與斜角都不相連）
+  function farPositions(k) {
+    for (let t = 0; t < 200; t++) {
+      const pos = [];
+      for (const p of shuffle([...Array(16).keys()])) {
+        const ok = pos.every(q => Math.max(Math.abs((p >> 2) - (q >> 2)), Math.abs((p & 3) - (q & 3))) >= 2);
+        if (ok) { pos.push(p); if (pos.length === k) return pos; }
+      }
+    }
+    return null;
+  }
+
+  function answerValues(k, needRed) {
+    for (;;) {
+      const vals = []; let sum = 0;
+      for (let i = 0; i < k - 1; i++) { const it = randItem(); vals.push(it); sum += it.s * it.v; }
+      const last = 10 - sum;
+      if (last === 0 || Math.abs(last) > 9) continue;
+      vals.push({ v: Math.abs(last), s: last > 0 ? 1 : -1 });
+      if (needRed && !vals.some(x => x.s < 0)) continue;
+      return shuffle(vals);
+    }
+  }
+
+  // 限定翻 k 張：保證所有 k 張組合中，只有答案那一組總和為 10
+  function generateUnique(k) {
+    const all = COMBOS[k], byIdx = BY_INDEX[k];
+    for (let attempt = 0; attempt < 80; attempt++) {
+      const pos = farPositions(k);
+      if (!pos) continue;
+      const items = Array.from({ length: 16 }, randItem);
+      const isAns = new Array(16).fill(false);
+      answerValues(k, k >= 3).forEach((it, i) => { items[pos[i]] = it; isAns[pos[i]] = true; });
+      const isBad = c => c.reduce((a, j) => a + items[j].s * items[j].v, 0) === 10 && !c.every(j => isAns[j]);
+
+      for (let step = 0; step < 300; step++) {
+        const bad = all.filter(isBad);
+        if (!bad.length) return items.map((it, i) => ({ ...it, ans: isAns[i] }));
+        const c = bad[rand(bad.length)];
+        const cand = c.filter(j => !isAns[j]);
+        const i = cand[rand(cand.length)];
+        let low = Infinity, opts = [];
+        for (const s of [1, -1]) for (let v = 1; v <= 9; v++) {
+          items[i] = { v, s };
+          const n = byIdx[i].filter(isBad).length;
+          if (n < low) { low = n; opts = [{ v, s }]; } else if (n === low) opts.push({ v, s });
+        }
+        items[i] = opts[rand(opts.length)];
+      }
+    }
+    return null;
+  }
+
+  // ---------- 畫面 ----------
   function build(items, faceDown) {
     board.innerHTML = '';
     cells = items.map(it => {
@@ -189,7 +268,7 @@ h1 small{display:block; font-size:15px; font-weight:700; color:var(--muted); mar
       el.className = 'card' + (faceDown ? ' down' : '');
       el.disabled = true;
       el.innerHTML = `<span class="inner"><span class="face front ${it.s > 0 ? 'plus' : 'minus'}"><i>${it.s > 0 ? '+' : '−'}</i>${it.v}</span><span class="face back"></span></span>`;
-      const cell = { el, v: it.v, s: it.s, sel: false };
+      const cell = { el, v: it.v, s: it.s, ans: !!it.ans, sel: false };
       el.addEventListener('click', () => pick(cell));
       board.appendChild(el);
       return cell;
@@ -206,19 +285,29 @@ h1 small{display:block; font-size:15px; font-weight:700; color:var(--muted); mar
     });
   }
 
+  function ruleText() {
+    return round.k ? `本關只能翻 ${round.k} 張，而且只有一組答案，翻了就不能收回。` : '本關不限張數，湊到 10 就過關。';
+  }
+
+  // ---------- 流程 ----------
   function startRound() {
     clearAll();
+    const c = cfg(level);
+    let items = c.k ? generateUnique(c.k) : null;
+    round = { k: items ? c.k : 0, mem: c.mem };
+    if (!items) items = generateFree();
+    used = 0;
     phase = 'memorize';
     updateStats();
-    build(generate(), false);
+    build(items, false);
     mainBtn.disabled = false;
     mainBtn.textContent = '我已記住';
-    const total = memTime() * 1000;
+    const total = round.mem * 1000;
     const t0 = performance.now();
     const tick = now => {
       const left = Math.max(0, total - (now - t0));
       bar.style.width = (left / total * 100) + '%';
-      setMsg(`記住它們！還剩 ${Math.ceil(left / 1000)} 秒`, '記好了可以直接按「我已記住」蓋牌。');
+      setMsg(`記住它們！還剩 ${Math.ceil(left / 1000)} 秒`, ruleText());
       if (left > 0) raf = requestAnimationFrame(tick); else hideCards();
     };
     raf = requestAnimationFrame(tick);
@@ -263,29 +352,47 @@ h1 small{display:block; font-size:15px; font-weight:700; color:var(--muted); mar
     phase = 'play';
     cells.forEach(c => { c.el.disabled = false; });
     labelCells();
-    mainBtn.textContent = '確認答案';
     updateSum();
     cells[0].el.focus({ preventScroll: true });
   }
 
   function pick(c) {
     if (phase !== 'play') return;
+    const reveal = $('#reveal').checked;
+    if (round.k) {
+      if (c.sel) return;                         // 限翻模式：翻了不能收回
+      c.sel = true; used++;
+      c.el.classList.add('sel');
+      if (reveal) c.el.classList.remove('down');
+      labelCells();
+      updateSum();
+      if (used === round.k) { phase = 'judging'; later(reduce ? 0 : 700, finish); }
+      return;
+    }
     c.sel = !c.sel;
     c.el.classList.toggle('sel', c.sel);
-    if ($('#reveal').checked) c.el.classList.toggle('down', !c.sel);
+    if (reveal) c.el.classList.toggle('down', !c.sel);
     labelCells();
     updateSum();
   }
 
-  function currentSum() {
-    return cells.filter(c => c.sel).reduce((a, c) => a + c.s * c.v, 0);
-  }
+  const currentSum = () => cells.filter(c => c.sel).reduce((a, c) => a + c.s * c.v, 0);
 
   function updateSum() {
     const n = cells.filter(c => c.sel).length;
+    const reveal = $('#reveal').checked;
+    if (round.k) {
+      const left = round.k - used;
+      mainBtn.disabled = true;
+      mainBtn.textContent = left ? `還能翻 ${left} 張` : '判定中…';
+      if (n === 0) { setMsg(`只能翻 ${round.k} 張，選準了再點`, '這一關只有一組答案，翻了就不能收回。'); return; }
+      setMsg(reveal ? `目前總和：${currentSum()}` : `已翻 ${n} 張`, left ? `還能翻 ${left} 張` : '');
+      return;
+    }
+    mainBtn.textContent = '確認答案';
     mainBtn.disabled = n === 0;
     if (n === 0) { setMsg('點選牌，讓總和剛好等於 10', '再點一次可以取消選取。'); return; }
-    if ($('#reveal').checked) {
+    if (reveal) {
       const s = currentSum();
       setMsg(`目前總和：${s}`, s === 10 ? '剛好 10，按「確認答案」過關。' : `已選 ${n} 張`);
     } else {
@@ -299,16 +406,21 @@ h1 small{display:block; font-size:15px; font-weight:700; color:var(--muted); mar
     cells.forEach(c => { c.el.disabled = true; c.el.classList.remove('down'); });
     if (sum === 10) {
       if (level > best) { best = level; try { localStorage.setItem('make10-best', String(best)); } catch (e) {} }
-      setMsg(`過關！總和剛好 10`, `下一關記憶時間 ${Math.max(2, 5.5 - (level + 1) * 0.5)} 秒。`);
+      const nx = cfg(level + 1), cur = cfg(level);
+      let sub = `下一關記憶時間 ${nx.mem} 秒。`;
+      if (nx.k !== cur.k) sub = `下一關開始只能翻 ${nx.k} 張，而且只有一組答案。`;
+      setMsg('過關！總和剛好 10', sub);
       level++;
       mainBtn.textContent = '下一關';
     } else {
-      const mask = findSolution(cells);
-      cells.forEach((c, i) => {
-        if (mask & (1 << i)) c.el.classList.add('hint');
+      let isHint;
+      if (round.k) isHint = c => c.ans;
+      else { const mask = findSolution(cells); isHint = c => !!(mask & (1 << cells.indexOf(c))); }
+      cells.forEach(c => {
+        if (isHint(c)) c.el.classList.add('hint');
         else if (!c.sel) c.el.classList.add('dim');
       });
-      setMsg(`總和是 ${sum}，不是 10`, '黃框是其中一種湊到 10 的組合。');
+      setMsg(`總和是 ${sum}，不是 10`, round.k ? '黃框是本關唯一的答案。' : '黃框是其中一種湊到 10 的組合。');
       mainBtn.textContent = '再試一次';
     }
     labelCells();
@@ -318,13 +430,13 @@ h1 small{display:block; font-size:15px; font-weight:700; color:var(--muted); mar
   }
 
   mainBtn.addEventListener('click', () => {
-    if (phase === 'memorize') { clearAll(); mainBtn.disabled = true; mainBtn.textContent = '蓋牌中…'; hideCards(); }
+    if (phase === 'memorize') { clearAll(); hideCards(); }
     else if (phase === 'play') finish();
     else if (phase === 'idle' || phase === 'done') startRound();
   });
 
   updateStats();
-  build(generate(), true);
+  build(generateFree(), true);
 })();
 </script>
 </body>
