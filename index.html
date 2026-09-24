@@ -1,0 +1,331 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>湊十：記憶翻牌</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;700;900&family=Rubik:wght@600;800&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#e7edf4; --ink:#1c2a3e; --muted:#5b6b80;
+  --felt:#23456e; --felt-edge:#17314f;
+  --tile:#f6efdb; --tile-edge:#d6c79f;
+  --back:#d99a2b; --back-dark:#b87d17;
+  --red:#c42f28; --green:#17804a;
+  --ring:#ffffff; --hint:#f2c230;
+  --btn:#1c2a3e; --btn-ink:#fff;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#101c2c; --ink:#eef2f7; --muted:#9aabc0;
+    --felt:#23456e; --felt-edge:#0c1a2b;
+    --btn:#f6efdb; --btn-ink:#1c2a3e;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#101c2c; --ink:#eef2f7; --muted:#9aabc0;
+  --felt:#23456e; --felt-edge:#0c1a2b;
+  --btn:#f6efdb; --btn-ink:#1c2a3e;
+}
+*,*::before,*::after{box-sizing:inherit}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{
+  margin:0; background:var(--bg); color:var(--ink);
+  font-family:"Noto Sans TC","PingFang TC","Microsoft JhengHei",system-ui,sans-serif;
+  display:flex; justify-content:center;
+}
+main{width:min(100%,520px); padding:24px 16px 40px; display:flex; flex-direction:column; align-items:center; gap:16px}
+header{width:100%; display:flex; align-items:flex-end; justify-content:space-between; gap:12px}
+h1{margin:0; font-size:clamp(34px,9vw,48px); font-weight:900; line-height:1; letter-spacing:.02em}
+h1 small{display:block; font-size:15px; font-weight:700; color:var(--muted); margin-top:6px; letter-spacing:0}
+.legend{font-size:15px; line-height:1.6; text-align:right}
+.legend b{font-family:Rubik,sans-serif; font-size:18px}
+.legend .g{color:var(--green)} .legend .r{color:var(--red)}
+
+.stats{width:100%; display:flex; gap:8px}
+.stat{flex:1; border:1.5px solid color-mix(in srgb,var(--ink) 18%,transparent); border-radius:10px; padding:8px 10px}
+.stat span{display:block; font-size:12px; color:var(--muted)}
+.stat strong{font-family:Rubik,sans-serif; font-size:22px}
+
+.stage{width:min(92vw,440px); display:flex; flex-direction:column; gap:10px}
+.board{
+  width:100%; aspect-ratio:1; display:grid; grid-template-columns:repeat(4,1fr); grid-template-rows:repeat(4,1fr);
+  gap:clamp(6px,2vw,11px); padding:clamp(10px,3vw,16px);
+  background:var(--felt); border-radius:24px;
+  box-shadow:inset 0 0 0 3px var(--felt-edge), 0 10px 0 var(--felt-edge);
+}
+.card{border:0; padding:0; background:none; cursor:pointer; perspective:700px; border-radius:12px; font:inherit; color:inherit; transition:transform .15s}
+.card:disabled{cursor:default}
+.card:focus-visible{outline:3px dashed var(--hint); outline-offset:3px}
+.card.sel{transform:translateY(-4px); outline:3px solid var(--ring); outline-offset:3px}
+.inner{position:relative; display:block; width:100%; height:100%; transform-style:preserve-3d; transition:transform .45s cubic-bezier(.5,0,.3,1)}
+.card.down .inner{transform:rotateY(180deg)}
+.face{position:absolute; inset:0; border-radius:12px; backface-visibility:hidden; -webkit-backface-visibility:hidden; display:grid; place-items:center}
+.front{
+  background:var(--tile); box-shadow:inset 0 -5px 0 var(--tile-edge);
+  font-family:Rubik,sans-serif; font-weight:800; font-size:clamp(30px,10vw,52px); padding-bottom:4px;
+}
+.front i{position:absolute; top:4px; left:8px; font-style:normal; font-size:clamp(12px,3.4vw,16px); opacity:.7}
+.plus{color:var(--green)} .minus{color:var(--red)}
+.back{
+  transform:rotateY(180deg);
+  background:
+    radial-gradient(circle at 50% 50%, transparent 38%, rgba(255,255,255,.18) 39% 43%, transparent 44%),
+    repeating-linear-gradient(45deg, var(--back) 0 7px, var(--back-dark) 7px 9px);
+  box-shadow:inset 0 -5px 0 rgba(0,0,0,.18);
+}
+.card.hint .front{box-shadow:inset 0 -5px 0 var(--tile-edge), inset 0 0 0 4px var(--hint)}
+.card.dim .front{opacity:.45}
+
+.timer{height:8px; border-radius:8px; background:color-mix(in srgb,var(--ink) 12%,transparent); overflow:hidden}
+.timer span{display:block; height:100%; width:0; background:var(--back)}
+.msg{min-height:3.2em; text-align:center; font-size:17px; font-weight:700; line-height:1.6; margin:0}
+.msg .sub{display:block; font-weight:400; font-size:14px; color:var(--muted)}
+
+#main{
+  min-width:200px; border:0; border-radius:14px; padding:14px 28px; font:900 19px "Noto Sans TC",sans-serif;
+  background:var(--btn); color:var(--btn-ink); cursor:pointer; box-shadow:0 4px 0 color-mix(in srgb,var(--btn) 60%,#000);
+}
+#main:active{transform:translateY(2px); box-shadow:0 2px 0 color-mix(in srgb,var(--btn) 60%,#000)}
+#main:disabled{opacity:.4; cursor:default}
+#main:focus-visible{outline:3px dashed var(--hint); outline-offset:3px}
+
+.settings{width:100%; display:flex; flex-wrap:wrap; gap:10px 18px; justify-content:center; font-size:14px; color:var(--muted)}
+.settings label{display:flex; align-items:center; gap:6px}
+.settings select{font:inherit; color:var(--ink); background:var(--bg); border:1.5px solid color-mix(in srgb,var(--ink) 25%,transparent); border-radius:8px; padding:4px 6px}
+
+@media (prefers-reduced-motion: reduce){
+  .inner,.card{transition:none}
+}
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>湊十<small>記住數字，蓋牌轉向後找回來</small></h1>
+    <div class="legend"><span class="g"><b>7</b> 綠字加</span><br><span class="r"><b>7</b> 紅字減</span></div>
+  </header>
+
+  <div class="stats">
+    <div class="stat"><span>關卡</span><strong id="lvl">1</strong></div>
+    <div class="stat"><span>記憶時間</span><strong id="mem">5 秒</strong></div>
+    <div class="stat"><span>最佳紀錄</span><strong id="best">–</strong></div>
+  </div>
+
+  <div class="stage">
+    <div class="board" id="board" aria-label="4 乘 4 牌面"></div>
+    <div class="timer" aria-hidden="true"><span id="bar"></span></div>
+  </div>
+
+  <p class="msg" id="msg" aria-live="polite">按「開始」看牌。牌會在幾秒後蓋起來並旋轉 90°。<span class="sub">蓋牌後點選牌，讓加減後的總和剛好等於 10。</span></p>
+
+  <button id="main" type="button">開始</button>
+
+  <div class="settings">
+    <label>旋轉方向
+      <select id="dir">
+        <option value="cw">順時針</option>
+        <option value="ccw">逆時針</option>
+        <option value="rand">隨機</option>
+      </select>
+    </label>
+    <label><input type="checkbox" id="reveal" checked> 點牌時翻開並顯示總和</label>
+  </div>
+</main>
+
+<script>
+(() => {
+  const $ = s => document.querySelector(s);
+  const board = $('#board'), bar = $('#bar'), msg = $('#msg'), mainBtn = $('#main');
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  let cells = [], phase = 'idle', level = 1, timers = [], raf = 0;
+  let best = 0;
+  try { best = parseInt(localStorage.getItem('make10-best') || '0', 10) || 0; } catch (e) {}
+
+  const memTime = () => Math.max(2, 5.5 - level * 0.5);
+  const later = (ms, fn) => timers.push(setTimeout(fn, ms));
+  const clearAll = () => { timers.forEach(clearTimeout); timers = []; cancelAnimationFrame(raf); };
+  const setMsg = (main, sub = '') => { msg.innerHTML = main + (sub ? `<span class="sub">${sub}</span>` : ''); };
+
+  function updateStats() {
+    $('#lvl').textContent = level;
+    $('#mem').textContent = memTime() + ' 秒';
+    $('#best').textContent = best ? '第 ' + best + ' 關' : '–';
+  }
+
+  // 找出最少張數、總和為 10 的組合（16 張全枚舉 65536 種即可）
+  function findSolution(items) {
+    let bestMask = -1, bestCount = 99;
+    for (let m = 1; m < (1 << 16); m++) {
+      let sum = 0, cnt = 0;
+      for (let i = 0; i < 16; i++) if (m & (1 << i)) { sum += items[i].s * items[i].v; cnt++; }
+      if (sum === 10 && cnt < bestCount) { bestCount = cnt; bestMask = m; if (cnt === 2) break; }
+    }
+    return bestMask;
+  }
+
+  function generate() {
+    let items;
+    do {
+      items = Array.from({ length: 16 }, () => ({
+        v: 1 + Math.floor(Math.random() * 9),
+        s: Math.random() < 0.35 ? -1 : 1
+      }));
+    } while (findSolution(items) < 0);
+    return items;
+  }
+
+  function build(items, faceDown) {
+    board.innerHTML = '';
+    cells = items.map(it => {
+      const el = document.createElement('button');
+      el.type = 'button';
+      el.className = 'card' + (faceDown ? ' down' : '');
+      el.disabled = true;
+      el.innerHTML = `<span class="inner"><span class="face front ${it.s > 0 ? 'plus' : 'minus'}"><i>${it.s > 0 ? '+' : '−'}</i>${it.v}</span><span class="face back"></span></span>`;
+      const cell = { el, v: it.v, s: it.s, sel: false };
+      el.addEventListener('click', () => pick(cell));
+      board.appendChild(el);
+      return cell;
+    });
+    labelCells();
+  }
+
+  function labelCells() {
+    cells.forEach((c, i) => {
+      const pos = `第 ${(i >> 2) + 1} 列第 ${(i & 3) + 1} 格`;
+      const faceUp = !c.el.classList.contains('down');
+      c.el.setAttribute('aria-label', faceUp ? `${pos}，${c.s > 0 ? '綠色加' : '紅色減'} ${c.v}` : `${pos}，蓋著`);
+      c.el.setAttribute('aria-pressed', c.sel ? 'true' : 'false');
+    });
+  }
+
+  function startRound() {
+    clearAll();
+    phase = 'memorize';
+    updateStats();
+    build(generate(), false);
+    mainBtn.disabled = false;
+    mainBtn.textContent = '我已記住';
+    const total = memTime() * 1000;
+    const t0 = performance.now();
+    const tick = now => {
+      const left = Math.max(0, total - (now - t0));
+      bar.style.width = (left / total * 100) + '%';
+      setMsg(`記住它們！還剩 ${Math.ceil(left / 1000)} 秒`, '記好了可以直接按「我已記住」蓋牌。');
+      if (left > 0) raf = requestAnimationFrame(tick); else hideCards();
+    };
+    raf = requestAnimationFrame(tick);
+  }
+
+  function hideCards() {
+    phase = 'hiding';
+    mainBtn.disabled = true;
+    mainBtn.textContent = '蓋牌中…';
+    bar.style.width = '0';
+    cells.forEach(c => c.el.classList.add('down'));
+    labelCells();
+    setMsg('蓋牌！');
+    later(reduce ? 80 : 600, rotateBoard);
+  }
+
+  function rotateBoard() {
+    const choice = $('#dir').value;
+    const dir = choice === 'cw' ? 1 : choice === 'ccw' ? -1 : (Math.random() < .5 ? 1 : -1);
+    setMsg(dir > 0 ? '牌面順時針轉 90°' : '牌面逆時針轉 90°');
+    const dur = reduce ? 0 : 900;
+    board.style.transition = `transform ${dur}ms cubic-bezier(.6,0,.3,1)`;
+    board.style.transform = `rotate(${dir * 90}deg)`;
+    later(dur + 80, () => {
+      board.style.transition = 'none';
+      board.style.transform = 'none';
+      const next = new Array(16);
+      cells.forEach((c, i) => {
+        const r = i >> 2, col = i & 3;
+        const [nr, nc] = dir > 0 ? [col, 3 - r] : [3 - col, r];
+        next[nr * 4 + nc] = c;
+      });
+      cells = next;
+      cells.forEach(c => board.appendChild(c.el));
+      void board.offsetWidth;
+      board.style.transition = '';
+      startPlay();
+    });
+  }
+
+  function startPlay() {
+    phase = 'play';
+    cells.forEach(c => { c.el.disabled = false; });
+    labelCells();
+    mainBtn.textContent = '確認答案';
+    updateSum();
+    cells[0].el.focus({ preventScroll: true });
+  }
+
+  function pick(c) {
+    if (phase !== 'play') return;
+    c.sel = !c.sel;
+    c.el.classList.toggle('sel', c.sel);
+    if ($('#reveal').checked) c.el.classList.toggle('down', !c.sel);
+    labelCells();
+    updateSum();
+  }
+
+  function currentSum() {
+    return cells.filter(c => c.sel).reduce((a, c) => a + c.s * c.v, 0);
+  }
+
+  function updateSum() {
+    const n = cells.filter(c => c.sel).length;
+    mainBtn.disabled = n === 0;
+    if (n === 0) { setMsg('點選牌，讓總和剛好等於 10', '再點一次可以取消選取。'); return; }
+    if ($('#reveal').checked) {
+      const s = currentSum();
+      setMsg(`目前總和：${s}`, s === 10 ? '剛好 10，按「確認答案」過關。' : `已選 ${n} 張`);
+    } else {
+      setMsg(`已選 ${n} 張`, '選好後按「確認答案」。');
+    }
+  }
+
+  function finish() {
+    phase = 'done';
+    const sum = currentSum();
+    cells.forEach(c => { c.el.disabled = true; c.el.classList.remove('down'); });
+    if (sum === 10) {
+      if (level > best) { best = level; try { localStorage.setItem('make10-best', String(best)); } catch (e) {} }
+      setMsg(`過關！總和剛好 10`, `下一關記憶時間 ${Math.max(2, 5.5 - (level + 1) * 0.5)} 秒。`);
+      level++;
+      mainBtn.textContent = '下一關';
+    } else {
+      const mask = findSolution(cells);
+      cells.forEach((c, i) => {
+        if (mask & (1 << i)) c.el.classList.add('hint');
+        else if (!c.sel) c.el.classList.add('dim');
+      });
+      setMsg(`總和是 ${sum}，不是 10`, '黃框是其中一種湊到 10 的組合。');
+      mainBtn.textContent = '再試一次';
+    }
+    labelCells();
+    updateStats();
+    mainBtn.disabled = false;
+    mainBtn.focus({ preventScroll: true });
+  }
+
+  mainBtn.addEventListener('click', () => {
+    if (phase === 'memorize') { clearAll(); mainBtn.disabled = true; mainBtn.textContent = '蓋牌中…'; hideCards(); }
+    else if (phase === 'play') finish();
+    else if (phase === 'idle' || phase === 'done') startRound();
+  });
+
+  updateStats();
+  build(generate(), true);
+})();
+</script>
+</body>
+</html>
