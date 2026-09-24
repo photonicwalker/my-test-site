@@ -181,9 +181,11 @@ h1 small{display:block; font-size:15px; font-weight:700; color:var(--muted); mar
     rec(0, []);
     return out;
   }
+  // COMBOS[k]：2 張到 k 張的所有組合（唯一解要涵蓋所有張數，不只剛好 k 張）
   const COMBOS = {}, BY_INDEX = {};
   [2, 3, 4].forEach(k => {
-    COMBOS[k] = combos(16, k);
+    COMBOS[k] = [];
+    for (let n = 2; n <= k; n++) COMBOS[k].push(...combos(16, n));
     BY_INDEX[k] = Array.from({ length: 16 }, (_, i) => COMBOS[k].filter(c => c.includes(i)));
   });
 
@@ -230,7 +232,7 @@ h1 small{display:block; font-size:15px; font-weight:700; color:var(--muted); mar
     }
   }
 
-  // 限定翻 k 張：保證所有 k 張組合中，只有答案那一組總和為 10
+  // 限定翻 k 張：保證翻 2～k 張的所有組合中，只有答案那一組總和為 10
   function generateUnique(k) {
     const all = COMBOS[k], byIdx = BY_INDEX[k];
     for (let attempt = 0; attempt < 80; attempt++) {
@@ -239,13 +241,14 @@ h1 small{display:block; font-size:15px; font-weight:700; color:var(--muted); mar
       const items = Array.from({ length: 16 }, randItem);
       const isAns = new Array(16).fill(false);
       answerValues(k, k >= 3).forEach((it, i) => { items[pos[i]] = it; isAns[pos[i]] = true; });
-      const isBad = c => c.reduce((a, j) => a + items[j].s * items[j].v, 0) === 10 && !c.every(j => isAns[j]);
+      const isBad = c => c.reduce((a, j) => a + items[j].s * items[j].v, 0) === 10 && !(c.length === k && c.every(j => isAns[j]));
 
       for (let step = 0; step < 300; step++) {
         const bad = all.filter(isBad);
         if (!bad.length) return items.map((it, i) => ({ ...it, ans: isAns[i] }));
         const c = bad[rand(bad.length)];
         const cand = c.filter(j => !isAns[j]);
+        if (!cand.length) break;
         const i = cand[rand(cand.length)];
         let low = Infinity, opts = [];
         for (const s of [1, -1]) for (let v = 1; v <= 9; v++) {
@@ -286,7 +289,7 @@ h1 small{display:block; font-size:15px; font-weight:700; color:var(--muted); mar
   }
 
   function ruleText() {
-    return round.k ? `本關只能翻 ${round.k} 張，而且只有一組答案，翻了就不能收回。` : '本關不限張數，湊到 10 就過關。';
+    return round.k ? `本關最多翻 ${round.k} 張，而且只有一組答案，翻了就不能收回。` : '本關不限張數，湊到 10 就過關。';
   }
 
   // ---------- 流程 ----------
@@ -366,7 +369,7 @@ h1 small{display:block; font-size:15px; font-weight:700; color:var(--muted); mar
       if (reveal) c.el.classList.remove('down');
       labelCells();
       updateSum();
-      if (used === round.k) { phase = 'judging'; later(reduce ? 0 : 700, finish); }
+      if (currentSum() === 10 || used === round.k) { phase = 'judging'; later(reduce ? 0 : 700, finish); }
       return;
     }
     c.sel = !c.sel;
@@ -385,7 +388,7 @@ h1 small{display:block; font-size:15px; font-weight:700; color:var(--muted); mar
       const left = round.k - used;
       mainBtn.disabled = true;
       mainBtn.textContent = left ? `還能翻 ${left} 張` : '判定中…';
-      if (n === 0) { setMsg(`只能翻 ${round.k} 張，選準了再點`, '這一關只有一組答案，翻了就不能收回。'); return; }
+      if (n === 0) { setMsg(`最多翻 ${round.k} 張，選準了再點`, '湊到 10 就立刻過關，翻了就不能收回。'); return; }
       setMsg(reveal ? `目前總和：${currentSum()}` : `已翻 ${n} 張`, left ? `還能翻 ${left} 張` : '');
       return;
     }
@@ -408,7 +411,7 @@ h1 small{display:block; font-size:15px; font-weight:700; color:var(--muted); mar
       if (level > best) { best = level; try { localStorage.setItem('make10-best', String(best)); } catch (e) {} }
       const nx = cfg(level + 1), cur = cfg(level);
       let sub = `下一關記憶時間 ${nx.mem} 秒。`;
-      if (nx.k !== cur.k) sub = `下一關開始只能翻 ${nx.k} 張，而且只有一組答案。`;
+      if (nx.k !== cur.k) sub = `下一關開始最多翻 ${nx.k} 張，而且只有一組答案。`;
       setMsg('過關！總和剛好 10', sub);
       level++;
       mainBtn.textContent = '下一關';
